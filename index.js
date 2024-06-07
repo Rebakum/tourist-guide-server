@@ -27,27 +27,42 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
+    await client.connect();
+
     const userCollection = client.db('touristDb').collection('users');
     const tourCollection = client.db('touristDb').collection('tours');
     const wishListCollection = client.db('touristDb').collection('wishLists');
     const guideCollection = client.db('touristDb').collection('guides');
+    const bookingCollection = client.db('touristDb').collection('bookings');
 
     //----user api---------
     app.post('/users', async (req, res) => {
       const user = req.body;
-      const query = { email: user.email }
-      const existingUser = await userCollection.findOne(query)
+      const query = { email: user.email };
+      const existingUser = await userCollection.findOne(query);
       if (existingUser) {
-        return res.send({ message: 'user already exists', insertOne: null })
+        return res.send({ message: 'user already exists', insertOne: null });
       }
-      const result = await userCollection.insertOne(user)
-      res.send(result)
+      const result = await userCollection.insertOne(user);
+      res.send(result);
     });
 
-    // user get 
+    // user get all
     app.get('/users', async (req, res) => {
-      const result = await userCollection.find().toArray()
-      res.send(result)
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
+
+    // user get by email
+    app.get('/users/:email', async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      if (user) {
+        res.send(user);
+      } else {
+        res.status(404).send({ message: 'User not found' });
+      }
     });
 
     // Update user role to admin
@@ -84,11 +99,20 @@ async function run() {
       res.send(result);
     });
 
-     // guides API - Get all data
-     app.get('/guides', async (req, res) => {
-      const result = await tourCollection.find().toArray();
+    // guides API - Get all data
+    app.get('/guides', async (req, res) => {
+      const result = await guideCollection.find().toArray();
       res.send(result);
     });
+    // Tours API - Get single data
+    app.get('/guides/:id', async (req, res) => {
+      const id = req.params.id;
+      console.log(id)
+      const query = { _id: new ObjectId(id) };
+      const result = await guideCollection.findOne(query);
+      res.send(result);
+    });
+
 
     // Tours API - Get all data
     app.get('/tours', async (req, res) => {
@@ -104,6 +128,21 @@ async function run() {
       res.send(result);
     });
 
+    // ----booking post api-----
+     app.post('/bookings', async(req, res)=>{
+      const booking = req.body;
+      const result = await bookingCollection.insertOne(booking)
+      res.send(result)
+     })
+
+       // Tours API - Get single data
+    app.get('/bookings/:id', async (req, res) => {
+      const email = req.params.email;      
+      const query = { email: email };
+      const result = await bookingCollection.findOne(query);
+      res.send(result);
+    });
+
     // -----Wishlist API - Add to wishlist---
     app.post('/wishLists', async (req, res) => {
       const wishList = req.body;
@@ -111,7 +150,7 @@ async function run() {
       res.send(result);
     });
 
-    // -----whishlists api get--------
+    // -----wishlists api get--------
     app.get('/wishLists', async (req, res) => {
       const email = req.query.email;
       const query = { email: email };
@@ -120,6 +159,7 @@ async function run() {
     });
 
     // ----wishList delete---
+
     app.delete('/wishLists/:id', async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
@@ -127,7 +167,6 @@ async function run() {
       res.send(result);
     });
 
-   
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
