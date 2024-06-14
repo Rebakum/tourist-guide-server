@@ -192,20 +192,20 @@ async function run() {
     });
 
     // Booking API - Get by email
-  
-// Booking API - Get by email with pagination
-app.get('/bookings/:email', async (req, res) => {
-  const email = req.params.email;
-  const page = parseInt(req.query.page) || 1;
-  const perPage = parseInt(req.query.perPage) || 10;
-  const query = { touristEmail: email };
 
-  const skip = (page - 1) * perPage;
-  const total = await bookingCollection.countDocuments(query);
-  const bookings = await bookingCollection.find(query).skip(skip).limit(perPage).toArray();
+    // Booking API - Get by email with pagination
+    app.get('/bookings/:email', async (req, res) => {
+      const email = req.params.email;
+      const page = parseInt(req.query.page) || 1;
+      const perPage = parseInt(req.query.perPage) || 10;
+      const query = { touristEmail: email };
 
-  res.send({ bookings, total });
-});
+      const skip = (page - 1) * perPage;
+      const total = await bookingCollection.countDocuments(query);
+      const bookings = await bookingCollection.find(query).skip(skip).limit(perPage).toArray();
+
+      res.send({ bookings, total });
+    });
 
 
     // Booking API - Get all by guide email
@@ -218,20 +218,20 @@ app.get('/bookings/:email', async (req, res) => {
 
 
 
-// Booking API - Get all by guide email with pagination
-// Update the route to handle pagination
-app.get('/bookings', verifyToken, async (req, res) => {
-    const guideEmail = req.query.guideEmail;
-    const page = parseInt(req.query.page) || 1; // Get page from query parameters
-    const perPage = 10; // Set number of items per page
-    const skip = (page - 1) * perPage;
+    // Booking API - Get all by guide email with pagination
+    // Update the route to handle pagination
+    app.get('/bookings', verifyToken, async (req, res) => {
+      const guideEmail = req.query.guideEmail;
+      const page = parseInt(req.query.page) || 1; // Get page from query parameters
+      const perPage = 10; // Set number of items per page
+      const skip = (page - 1) * perPage;
 
-    const query = { guideEmail: guideEmail };
-    const result = await bookingCollection.find(query).skip(skip).limit(perPage).toArray();
-    res.send(result);
-});
+      const query = { guideEmail: guideEmail };
+      const result = await bookingCollection.find(query).skip(skip).limit(perPage).toArray();
+      res.send(result);
+    });
 
-    
+
     // Booking API - Update status to "Paid"
     app.patch('/bookings/pay/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
@@ -288,11 +288,7 @@ app.get('/bookings', verifyToken, async (req, res) => {
       res.send(result);
     });
 
-    // Reviews API - Get all
-    // app.get('/reviews', async (req, res) => {
-    //   const result = await reviewCollection.find().toArray();
-    //   res.send(result);
-    // });
+
 
     // Reviews API - Get all with pagination
     app.get('/reviews', async (req, res) => {
@@ -314,16 +310,17 @@ app.get('/bookings', verifyToken, async (req, res) => {
     });
 
     // Reviews API - Create
-    app.post('/reviews', async (req, res) => {
+    app.post('/set-reviews', async (req, res) => {
       const review = req.body;
-      // Make sure the review object contains guideEmail
-      if (!review.guideEmail) {
-        return res.status(400).send({ message: 'guideEmail is required' });
-      }
       const result = await reviewCollection.insertOne(review);
       res.send(result);
     });
-
+    // get review for this guide
+    app.get("/all-comment/:email", async (req, res) => {
+      const query = { guidEmail: req.params.email };
+      const result = await reviewCollection.find(query).toArray();
+      res.send(result)
+    })
     // Reviews API - Get by tour
     app.get('/reviews/:tourId', async (req, res) => {
       const tourId = req.params.tourId;
@@ -361,24 +358,24 @@ app.get('/bookings', verifyToken, async (req, res) => {
     //   console.log('Wishlist data for email:', email, result); // Log the result
     //   res.send(result);
     // });
-    
-    
+
+
     // Correctly handle the pagination and response
     app.get('/wishLists', async (req, res) => {
       const email = req.query.email;
       const page = parseInt(req.query.page) || 1;
       const perPage = parseInt(req.query.perPage) || 10;
       const query = { email };
-  
+
       const skip = (page - 1) * perPage;
       const total = await wishListCollection.countDocuments(query);
       const wishLists = await wishListCollection.find(query).skip(skip).limit(perPage).toArray();
-  
-      res.send({ wishLists, total });
-  });
-  
 
-    
+      res.send({ wishLists, total });
+    });
+
+
+
 
     // Wishlist API - Create
     app.post('/wishLists', async (req, res) => {
