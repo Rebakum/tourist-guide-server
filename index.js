@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { MongoClient, ObjectId } = require('mongodb');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
@@ -8,12 +8,12 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 const corsOptions = {
-  origin: ['http://localhost:5173',
+  origin: [
+    'http://localhost:5173',
     'http://localhost:5174',
     'https://tourist-guide-3bd84.web.app',
     'https://tourist-guide-3bd84.firebaseapp.com'
   ],
-
   credentials: true,
   optionSuccessStatus: 200,
 };
@@ -22,18 +22,15 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.upnu39b.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.upnu39b.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  }
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
 });
 
 async function run() {
   try {
-    // await client.connect();
+    await client.connect();
 
     const userCollection = client.db('touristDb').collection('users');
     const tourCollection = client.db('touristDb').collection('tours');
@@ -43,63 +40,78 @@ async function run() {
     const reviewCollection = client.db('touristDb').collection('reviews');
     const reviewStoryCollection = client.db('touristDb').collection('reviewsStory');
 
-    //-----jwt api----
+    //----- JWT API ----
     app.post('/jwt', async (req, res) => {
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
       res.send({ token });
-    })
-    //-----midleware----
+    });
+
+    //----- Middleware ----
     const verifyToken = (req, res, next) => {
-      console.log('inside verify Token', req.headers.authorization);
-      if (!req.headers.authorization) {
-        return res.status(401).send({ message: 'forbidden access 1' })
+      const authorizationHeader = req.headers.authorization;
+      if (!authorizationHeader) {
+        return res.status(401).send({ message: 'Forbidden access 1' });
       }
-      const token = req.headers.authorization.split(' ')[1];
+      const token = authorizationHeader.split(' ')[1];
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
         if (err) {
-
-          return res.ststus(401).send({ message: 'forbidden access 2' })
+          return res.status(401).send({ message: 'Forbidden access 2' });
         }
-        req.decoded = decoded
+        req.decoded = decoded;
         next();
-      })
+      });
+    };
 
-    }
-
-    // use verify admin after verifyToken
+    // Verify admin after verifyToken
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded.email;
       const query = { email: email };
       const user = await userCollection.findOne(query);
-      const isAdmin = user?.role === 'admin';
-      if (!isAdmin) {
-        return res.status(403).send({ message: 'forbidden access' });
+      if (!user || user.role !== 'admin') {
+        return res.status(403).send({ message: 'Forbidden access' });
       }
       next();
-    }
+    };
 
-    // user get all
+    // User get all with search, filter, and pagination
+    // User get all with search, filter, and pagination
     app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
-      const result = await userCollection.find().toArray();
-      res.send(result);
+      const { search, role, page = 1, perPage = 10 } = req.query;
+      const query = {};
+
+      if (search) {
+        query.$or = [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+        ];
+      }
+
+      if (role) {
+        query.role = role;
+      }
+
+      const skip = (page - 1) * perPage;
+      const total = await userCollection.countDocuments(query);
+      const users = await userCollection.find(query).skip(skip).limit(parseInt(perPage)).toArray();
+
+      res.send({ users, total });
     });
 
-    //----user api---------
+
+    // User API - Create
     app.post('/users', async (req, res) => {
       const user = req.body;
       const query = { email: user.email };
       const existingUser = await userCollection.findOne(query);
       if (existingUser) {
-        return res.send({ message: 'user already exists', insertOne: null });
+        return res.send({ message: 'User already exists', insertOne: null });
       }
       const result = await userCollection.insertOne(user);
       res.send(result);
     });
 
-
-
-    // user get by email
+    // User get by email
     app.get('/users/:email', async (req, res) => {
       const email = req.params.email;
       const query = { email: email };
@@ -111,44 +123,32 @@ async function run() {
       }
     });
 
-    app.get('/users/admin/:email', verifyToken, verifyAdmin, async (req, res) => {
+    // Check if user is admin
+    app.get('/users/admin/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
       if (email !== req.decoded.email) {
-        return res.status(403).send({ messqage: 'unauthorized' })
+        return res.status(403).send({ message: 'Unauthorized' });
       }
-      const query = { email: email }
-      const result = await userCollection.findOne(query)
-      let admin = false;
-      if (user) {
-        admin = user?.role === 'admin'
-      }
-      res.send({ admin })
-    })
-
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.role === 'admin';
+      res.send({ admin: isAdmin });
+    });
 
     // Update user role to admin
     app.patch('/users/admin/:id', verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
-      const update = {
-        $set: {
-          role: 'admin'
-        }
-      };
+      const update = { $set: { role: 'admin' } };
       const result = await userCollection.updateOne(query, update);
       res.send(result);
     });
-
 
     // Update user role to tour guide
     app.patch('/users/tourguide/:id', verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
-      const update = {
-        $set: {
-          role: 'tour guide'
-        }
-      };
+      const update = { $set: { role: 'tour guide' } };
       const result = await userCollection.updateOne(query, update);
       res.send(result);
     });
@@ -161,38 +161,15 @@ async function run() {
       res.send(result);
     });
 
-
-    // user get all with search and filter
-    app.get('/users', verifyToken, verifyAdmin, async (req, res) => {
-      const { search, role } = req.query;
-      const query = {};
-
-      if (search) {
-        query.$or = [
-          { name: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } }
-        ];
-      }
-
-      if (role) {
-        query.role = role;
-      }
-
-      const result = await userCollection.find(query).toArray();
-      res.send(result);
-    });
-
-
     // Tours API - Get all data
     app.get('/tours', async (req, res) => {
       const tourType = req.query.tourType;
-     console.log(tourType)
-      let query = {}
-      if (tourType && tourType !== 'null') query = { tourType }
+      const query = tourType && tourType !== 'null' ? { tourType } : {};
       const result = await tourCollection.find(query).toArray();
       res.send(result);
     });
-    // Tour Api -post 
+
+    // Tours API - Create
     app.post('/tours', async (req, res) => {
       const query = req.body;
       const result = await tourCollection.insertOne(query);
@@ -207,128 +184,211 @@ async function run() {
       res.send(result);
     });
 
-    // ----booking post api-----
+    // Booking API - Create
     app.post('/bookings', async (req, res) => {
       const booking = req.body;
-      const result = await bookingCollection.insertOne(booking)
-      res.send(result)
-    })
+      const result = await bookingCollection.insertOne(booking);
+      res.send(result);
+    });
 
-    // Tours API - Get single data
-    app.get('/bookings/:email', async (req, res) => {
-      const email = req.params.email;
-      const query = { touristEmail: email };
-      console.log(query)
-      const result = await bookingCollection.find(query).toArray();
-      console.log(result)
-      res.send(result);
-    });
-    app.get('/bookings', verifyToken, async (req, res) => {
-      const guideEmail = req.query.guideEmail;
-      const query = { guideEmail: guideEmail };
-      const result = await bookingCollection.find(query).toArray();
-      res.send(result);
-    });
-    // Endpoint to update booking status to "Paid"
+    // Booking API - Get by email
+  
+// Booking API - Get by email with pagination
+app.get('/bookings/:email', async (req, res) => {
+  const email = req.params.email;
+  const page = parseInt(req.query.page) || 1;
+  const perPage = parseInt(req.query.perPage) || 10;
+  const query = { touristEmail: email };
+
+  const skip = (page - 1) * perPage;
+  const total = await bookingCollection.countDocuments(query);
+  const bookings = await bookingCollection.find(query).skip(skip).limit(perPage).toArray();
+
+  res.send({ bookings, total });
+});
+
+
+    // Booking API - Get all by guide email
+    // app.get('/bookings', verifyToken, async (req, res) => {
+    //   const guideEmail = req.query.guideEmail;
+    //   const query = { guideEmail: guideEmail };
+    //   const result = await bookingCollection.find(query).toArray();
+    //   res.send(result);
+    // });
+
+
+
+// Booking API - Get all by guide email with pagination
+// Update the route to handle pagination
+app.get('/bookings', verifyToken, async (req, res) => {
+    const guideEmail = req.query.guideEmail;
+    const page = parseInt(req.query.page) || 1; // Get page from query parameters
+    const perPage = 10; // Set number of items per page
+    const skip = (page - 1) * perPage;
+
+    const query = { guideEmail: guideEmail };
+    const result = await bookingCollection.find(query).skip(skip).limit(perPage).toArray();
+    res.send(result);
+});
+
+    
+    // Booking API - Update status to "Paid"
     app.patch('/bookings/pay/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
-      const update = {
-        $set: {
-          status: 'Paid'
-        }
-      };
+      const update = { $set: { status: 'Paid' } };
       const result = await bookingCollection.updateOne(query, update);
       res.send(result);
     });
 
-    // Endpoint to update booking status to "Cancelled"
+    // Booking API - Delete
     app.delete('/bookings/cancel/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
-
       const result = await bookingCollection.deleteOne(query);
       res.send(result);
     });
+
+    // Booking API - Update status to "Accepted"
     app.patch('/bookings/accept/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
-      const update = {
-        $set: {
-          status: 'Accepted'
-        }
-      };
+      const update = { $set: { status: 'Accepted' } };
       const result = await bookingCollection.updateOne(query, update);
       res.send(result);
     });
 
-    // Endpoint to update booking status to "Rejected"
+    // Booking API - Update status to "Rejected"
     app.patch('/bookings/reject/:id', verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
-      const update = {
-        $set: {
-          status: 'Rejected'
-        }
-      };
+      const update = { $set: { status: 'Rejected' } };
       const result = await bookingCollection.updateOne(query, update);
       res.send(result);
     });
 
-
-    // guides API - Get all data
+    // Guides API - Get all
     app.get('/guides', async (req, res) => {
       const result = await guideCollection.find().toArray();
       res.send(result);
     });
-    // Tours API - Get single data
+
+    // Guides API - Create
+    app.post('/guides', async (req, res) => {
+      const guide = req.body;
+      const result = await guideCollection.insertOne(guide);
+      res.send(result);
+    });
+
+    // Guides API - Get single
     app.get('/guides/:id', async (req, res) => {
       const id = req.params.id;
-      console.log(id)
       const query = { _id: new ObjectId(id) };
       const result = await guideCollection.findOne(query);
       res.send(result);
     });
 
-    // review api post data
-    app.post('/reviews', async (req, res) => {
-      const query = req.body;
-      const result = await reviewCollection.insertOne(query)
-      res.send(query)
-    })
-    // review api get
-    app.get('/reviewsStory', async (req, res) => {
-      const result = await reviewStoryCollection.find().toArray()
-      res.send(result)
-    })
-    // Assuming you have an Express app and a reviewCollection defined
+    // Reviews API - Get all
+    // app.get('/reviews', async (req, res) => {
+    //   const result = await reviewCollection.find().toArray();
+    //   res.send(result);
+    // });
 
+    // Reviews API - Get all with pagination
     app.get('/reviews', async (req, res) => {
-      const email = req.query.email;
-      const query = { touristEmail: email };
+      const { page = 1, perPage = 10, guideId, tourId } = req.query;
+      const query = {};
+
+      if (guideId) {
+        query.guideId = guideId;
+      }
+
+      if (tourId) {
+        query.tourId = tourId;
+      }
+
+      const skip = (page - 1) * perPage;
+      const total = await reviewCollection.countDocuments(query);
+      const reviews = await reviewCollection.find(query).skip(skip).limit(parseInt(perPage)).toArray();
+      res.send({ reviews, total });
+    });
+
+    // Reviews API - Create
+    app.post('/reviews', async (req, res) => {
+      const review = req.body;
+      // Make sure the review object contains guideEmail
+      if (!review.guideEmail) {
+        return res.status(400).send({ message: 'guideEmail is required' });
+      }
+      const result = await reviewCollection.insertOne(review);
+      res.send(result);
+    });
+
+    // Reviews API - Get by tour
+    app.get('/reviews/:tourId', async (req, res) => {
+      const tourId = req.params.tourId;
+      const query = { tourId };
       const result = await reviewCollection.find(query).toArray();
-      res.send(result);      
-    })
+      res.send(result);
+    });
 
+    // Reviews Story API - Get all
+    app.get('/reviewsStory', async (req, res) => {
+      const result = await reviewStoryCollection.find().toArray();
+      res.send(result);
+    });
 
+    // Reviews Story API - Create
+    app.post('/reviewsStory', async (req, res) => {
+      const reviewStory = req.body;
+      const result = await reviewStoryCollection.insertOne(reviewStory);
+      res.send(result);
+    });
 
-    // -----Wishlist API - Add to wishlist---
+    // Reviews Story API - Get by tour
+    app.get('/reviewsStory/:tourId', async (req, res) => {
+      const tourId = req.params.tourId;
+      const query = { tourId };
+      const result = await reviewStoryCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    // Wishlist API - Get by user email
+    // app.get('/wishLists', async (req, res) => {
+    //   const email = req.query.email;
+    //   const query = { email };
+    //   const result = await wishListCollection.find(query).toArray();
+    //   console.log('Wishlist data for email:', email, result); // Log the result
+    //   res.send(result);
+    // });
+    
+    
+    // Correctly handle the pagination and response
+    app.get('/wishLists', async (req, res) => {
+      const email = req.query.email;
+      const page = parseInt(req.query.page) || 1;
+      const perPage = parseInt(req.query.perPage) || 10;
+      const query = { email };
+  
+      const skip = (page - 1) * perPage;
+      const total = await wishListCollection.countDocuments(query);
+      const wishLists = await wishListCollection.find(query).skip(skip).limit(perPage).toArray();
+  
+      res.send({ wishLists, total });
+  });
+  
+
+    
+
+    // Wishlist API - Create
     app.post('/wishLists', async (req, res) => {
       const wishList = req.body;
+      console.log(wishList)
       const result = await wishListCollection.insertOne(wishList);
       res.send(result);
     });
 
-    // -----wishlists api get--------
-    app.get('/wishLists', async (req, res) => {
-      const email = req.query.email;
-      const query = { email: email };
-      const result = await wishListCollection.find(query).toArray();
-      res.send(result);
-    });
-
-    // ----wishList delete---
-
+    // Wishlist API - Delete
     app.delete('/wishLists/:id', async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
@@ -336,19 +396,18 @@ async function run() {
       res.send(result);
     });
 
-
-    // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
-  } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close(); (Uncomment this if you want to close the connection after every request)
+    console.log('Connected to MongoDB');
+  } catch (error) {
+    console.error('Failed to connect to MongoDB:', error);
   }
 }
+
 run().catch(console.dir);
 
 app.get('/', (req, res) => {
-  res.send("tourists and travel running");
+  res.send('Tourist guide server is running...');
 });
 
-app.listen(port, () => console.log(`Server running on port ${port}`));
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});
