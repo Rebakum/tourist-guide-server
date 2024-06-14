@@ -321,13 +321,7 @@ async function run() {
       const result = await reviewCollection.find(query).toArray();
       res.send(result)
     })
-    // Reviews API - Get by tour
-    app.get('/reviews/:tourId', async (req, res) => {
-      const tourId = req.params.tourId;
-      const query = { tourId };
-      const result = await reviewCollection.find(query).toArray();
-      res.send(result);
-    });
+ 
 
     // Reviews Story API - Get all
     app.get('/reviewsStory', async (req, res) => {
